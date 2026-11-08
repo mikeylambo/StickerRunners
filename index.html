@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Sticker Runners</title>
+  <style>
+    html,body,#game{margin:0;width:100%;height:100%;overflow:hidden;background:#05030c}
+    #game-canvas{display:block;width:100%;height:100%}
+    /* Phase 0: the ribbon is the gameplay screen; hide the Shell's placeholder card */
+    #ui [data-screen-id="gameplay-placeholder"]{display:none}
+    #sr-hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);opacity:0;transition:opacity .6s;
+      font:600 13px/1.4 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;color:#e9e4ff;
+      background:rgba(10,6,24,.6);padding:8px 14px;border-radius:10px;white-space:nowrap;pointer-events:none}
+    #sr-hint b{color:#fff}
+  </style>
+</head>
+<body>
+  <div id="game"><canvas id="game-canvas"></canvas></div>
+  <div id="ui"></div>
+  <div id="sr-hint"><b>HOLD SPACE</b> PEEL · <b>RELEASE</b> SLAP · <b>SHIFT</b> KICK-OFF · <b>A/D</b> STEER</div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "name": "sticker-runners",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:invariants": "vitest run tests/invariants.test.ts",
+    "smoke": "vite build && node tools/smoke-e2e.mjs",
+    "gates": "npm run check && npm run lint && npm run test && npm run smoke",
+    "verify": "npm run gates",
+    "certify:web": "npm run verify && slu-certify web",
+    "certify:mobile": "npm run verify && slu-certify mobile",
+    "certify:controller": "npm run verify && slu-certify controller",
+    "certify:release": "npm run verify && slu-certify release"
+  },
+  "dependencies": {
+    "@slu/web-shell": "github:mikeylambo/Web-Game-Shell-v1.02#7003ec7a46f0de4c86b8dbb28fea81c10d4f21fa",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/three": "^0.180.0",
+    "eslint": "^10.14.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^7.0.0",
+    "vitest": "^5.1.0"
+  }
+}

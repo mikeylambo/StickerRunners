@@ -1,0 +1,18 @@
+{
+  "gameId": "sticker-runners",
+  "version": "0.1.0",
+  "channel": "development",
+  "demo": false,
+  "renderer": "three",
+  "frames": [
+    "arcade"
+  ],
+  "supportedInputs": [
+    "keyboard-mouse",
+    "gamepad"
+  ],
+  "supportedLocales": [
+    "en"
+  ],
+  "requiredFeatures": []
+}
