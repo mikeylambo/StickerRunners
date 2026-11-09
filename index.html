@@ -2,23 +2,71 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>Sticker Runners</title>
   <style>
     html,body,#game{margin:0;width:100%;height:100%;overflow:hidden;background:#05030c}
-    #game-canvas{display:block;width:100%;height:100%}
+    /* one-thumb play: no page scroll, pinch/double-tap zoom, long-press menus or text selection */
+    html,body{touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+    #game-canvas{display:block;width:100%;height:100%;touch-action:none}
     /* Phase 0: the ribbon is the gameplay screen; hide the Shell's placeholder card */
     #ui [data-screen-id="gameplay-placeholder"]{display:none}
-    #sr-hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);opacity:0;transition:opacity .6s;
-      font:600 13px/1.4 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;color:#e9e4ff;
-      background:rgba(10,6,24,.6);padding:8px 14px;border-radius:10px;white-space:nowrap;pointer-events:none}
+    #sr-hint{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);transform:translateX(-50%);opacity:0;transition:opacity .6s;
+      font:600 13px/1.4 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;color:#e9e4ff;max-width:calc(100vw - 32px);text-align:center;
+      background:rgba(10,6,24,.6);padding:8px 14px;border-radius:10px;pointer-events:none}
     #sr-hint b{color:#fff}
+    #sr-hint{white-space:nowrap}
+    /* portrait: Tack rides the lower third, so the hint moves to the top (clear of the pause button) */
+    @media (orientation: portrait){#sr-hint{top:calc(env(safe-area-inset-top,0px) + 74px);bottom:auto;font-size:12px}}
+    #sr-pause{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);right:calc(env(safe-area-inset-right,0px) + 10px);z-index:20;
+      width:52px;height:52px;border-radius:14px;border:2px solid rgba(255,250,240,.55);background:rgba(10,6,24,.55);color:#fffaf0;
+      font:700 18px/1 ui-monospace,Menlo,monospace;letter-spacing:2px;padding:0;touch-action:manipulation}
+    #sr-pause[hidden]{display:none}
+    #sr-error{position:fixed;left:0;right:0;top:0;z-index:2147483647;max-height:70vh;overflow:auto;margin:0;
+      padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 12px;background:#2a0010ee;color:#ffe9ee;
+      font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text;touch-action:auto}
+    #sr-error b{color:#fff;font-size:13px}
+    #sr-error button{float:right;font:inherit;background:#fff;color:#2a0010;border:0;border-radius:6px;padding:4px 10px}
   </style>
+  <script>
+    // Visible error overlay (kept in production). Classic inline script: runs even if the module bundle fails.
+    (function () {
+      var box = null, seen = {};
+      window.__srReport = function (title, detail) {
+        var key = title + "|" + (detail || "");
+        if (seen[key]) return; seen[key] = 1;
+        if (!box) {
+          box = document.createElement("pre"); box.id = "sr-error"; box.setAttribute("data-sr-ui", "");
+          var x = document.createElement("button"); x.textContent = "close"; x.onclick = function () { box.style.display = "none"; };
+          box.appendChild(x); (document.body || document.documentElement).appendChild(box);
+        }
+        box.style.display = "block";
+        var b = document.createElement("b"); b.textContent = "⚠ " + title;
+        box.appendChild(b); box.appendChild(document.createTextNode("\n" + (detail || "") + "\n" + navigator.userAgent + "\n\n"));
+      };
+      window.addEventListener("error", function (e) {
+        var where = e.filename ? e.filename.split("/").pop() + ":" + e.lineno + ":" + e.colno : "";
+        window.__srReport("Error: " + (e.message || "unknown"), where + (e.error && e.error.stack ? "\n" + e.error.stack : ""));
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e.reason;
+        window.__srReport("Unhandled rejection: " + (r && r.message ? r.message : String(r)), r && r.stack ? r.stack : "");
+      });
+      document.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      document.addEventListener("gesturestart", function (e) { e.preventDefault(); }); // Safari pinch
+      document.addEventListener("touchmove", function (e) {
+        if (!(e.target instanceof Element && e.target.closest("#sr-error, .slu-panel, .slu-tune, [data-sr-scroll]"))) e.preventDefault();
+      }, { passive: false });
+    })();
+  </script>
 </head>
 <body>
   <div id="game"><canvas id="game-canvas"></canvas></div>
   <div id="ui"></div>
   <div id="sr-hint"><b>HOLD SPACE</b> PEEL · <b>RELEASE</b> SLAP · <b>SHIFT</b> KICK-OFF · <b>A/D</b> STEER</div>
+  <button id="sr-pause" type="button" aria-label="Pause" hidden>II</button>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

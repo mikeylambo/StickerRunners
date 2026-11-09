@@ -10,13 +10,14 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:invariants": "vitest run tests/invariants.test.ts",
-    "smoke": "vite build && node tools/smoke-e2e.mjs",
+    "smoke": "vite build && node tools/smoke-e2e.mjs && node tools/touch-e2e.mjs",
     "gates": "npm run check && npm run lint && npm run test && npm run smoke",
     "verify": "npm run gates",
     "certify:web": "npm run verify && slu-certify web",
     "certify:mobile": "npm run verify && slu-certify mobile",
     "certify:controller": "npm run verify && slu-certify controller",
-    "certify:release": "npm run verify && slu-certify release"
+    "certify:release": "npm run verify && slu-certify release",
+    "smoke:touch": "vite build && node tools/touch-e2e.mjs"
   },
   "dependencies": {
     "@slu/web-shell": "file:vendor/web-shell",

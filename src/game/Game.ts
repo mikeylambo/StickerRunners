@@ -18,7 +18,10 @@ import { Backdrop } from "./render/Backdrop";
 import { DebugView } from "./render/DebugView";
 import type { Flags } from "./flags";
 import { phase0Stage } from "../../data/stages/phase0";
-import { simTuning, move, feel, look } from "../../config/tuning";
+import { simTuning, move, feel, look, camera as camT } from "../../config/tuning";
+import { createRenderer } from "./render/createRenderer";
+import { PerfGovernor } from "./render/PerfGovernor";
+import { report } from "./dev/report";
 
 export interface GameHooks {
   onFinish?: (summary: RunSummary) => void;
@@ -56,12 +59,25 @@ export class Game {
   private finishAt = -1;
   private hint: HTMLElement | null;
   private hintTimer = 0;
+  private pauseBtn: HTMLElement | null;
   frames = 0;
+  /** Which context attributes the renderer ended up with (diagnostics). */
+  readonly rendererAttempt: string;
+  readonly perf: PerfGovernor;
+  /** Resolved orientation this frame. */
+  portrait = false;
+  private loopErrors = 0;
+  private lastSize = "";
 
   constructor(private readonly canvas: HTMLCanvasElement, readonly flags: Flags, private readonly hooks: GameHooks = {}) {
     this.autopilot = flags.bot;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: flags.step });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // High-dpr phones don't need MSAA (pixels are already tiny) and it's the first thing to cost frame time.
+    const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+    const choice = createRenderer(canvas, { antialias: !(coarse && devicePixelRatio >= 2), preserveDrawingBuffer: flags.step });
+    this.renderer = choice.renderer;
+    this.rendererAttempt = choice.attempt;
+    this.perf = new PerfGovernor(devicePixelRatio || 1);
+    this.renderer.setPixelRatio(this.perf.ratio);
     this.scene.add(new THREE.HemisphereLight("#c4cbff", "#2b1f3d", 1.6));
     const sun = new THREE.DirectionalLight("#fff1dc", 1.5);
     sun.position.set(0.4, 1, 0.6);
@@ -69,11 +85,23 @@ export class Game {
     this.build();
     this.input.attach();
     this.input.onAnyInput = () => this.sfx.unlock();
+    this.input.touch.accepting = () => this.running && !this.paused && !this.autopilot;
     this.hint = document.getElementById("sr-hint");
+    this.pauseBtn = document.getElementById("sr-pause");
+    // The game is the single owner of the canvas size. Observe the element itself so hidden→shown,
+    // orientation flips, dynamic toolbars and 0×0 starts all resize before the next frame.
     addEventListener("resize", () => this.resize());
+    if (typeof ResizeObserver === "function") new ResizeObserver(() => this.resize()).observe(canvas);
     this.resize();
     if (!flags.step) {
-      const loop = (now: number) => { this.frame(now); requestAnimationFrame(loop); };
+      // Schedule the next frame first, so one thrown frame can never kill the loop (a frozen/blank canvas).
+      const loop = (now: number) => {
+        requestAnimationFrame(loop);
+        try { this.frame(now); }
+        catch (e) {
+          if (this.loopErrors++ < 3) report("Frame error", e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e));
+        }
+      };
       requestAnimationFrame(loop);
     }
   }
@@ -106,17 +134,50 @@ export class Game {
     this.prev = { s: this.sim.p.s, lat: this.sim.p.lat, h: this.sim.p.h };
     this.acc = 0; this.finishAt = -1;
     this.running = true; this.paused = false;
+    this.input.touch.reset();
     this.hintTimer = 7;
+    this.updateHint();
     if (this.hint) this.hint.style.opacity = "1";
+    this.resize();
   }
 
-  stop(): void { this.running = false; if (this.hint) this.hint.style.opacity = "0"; }
-  setPaused(p: boolean): void { this.paused = p; this.last = performance.now(); }
+  stop(): void { this.running = false; this.input.touch.reset(); if (this.hint) this.hint.style.opacity = "0"; }
+  setPaused(p: boolean): void { this.paused = p; this.last = performance.now(); if (p) this.input.touch.reset(); }
 
-  private resize(): void {
-    const w = innerWidth; const h = innerHeight;
-    this.renderer.setSize(w, h, false);
-    this.canvas.style.width = `${w}px`; this.canvas.style.height = `${h}px`;
+  /** Touch devices get the touch hint; switches the first time a touch is seen. */
+  private updateHint(): void {
+    if (!this.hint) return;
+    const touchUi = this.isTouchUi();
+    const want = touchUi ? "touch" : "keys";
+    if (this.hint.dataset.mode === want) return;
+    this.hint.dataset.mode = want;
+    this.hint.innerHTML = touchUi
+      ? "<b>HOLD</b> PEEL · <b>LET GO</b> SLAP<br><b>DRAG</b> STEER · <b>FLICK UP</b> KICK-OFF"
+      : "<b>HOLD SPACE</b> PEEL · <b>RELEASE</b> SLAP · <b>SHIFT</b> KICK-OFF · <b>A/D</b> STEER";
+  }
+
+  private isTouchUi(): boolean {
+    return this.input.touchSeen || (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
+  }
+
+  private resolvePortrait(): boolean {
+    const o = camT.orient; // ?orient= seeds this tunable at boot; the panel can flip it live
+    if (o === "portrait") return true;
+    if (o === "landscape") return false;
+    return innerHeight > innerWidth;
+  }
+
+  resize(): void {
+    // CSS sizes the canvas (100% of #game); we only size the drawing buffer to match it.
+    const w = Math.round(this.canvas.clientWidth || innerWidth);
+    const h = Math.round(this.canvas.clientHeight || innerHeight);
+    if (w <= 0 || h <= 0) return;
+    const key = `${w}x${h}@${this.perf.ratio}`;
+    if (key !== this.lastSize) {
+      this.lastSize = key;
+      this.renderer.setPixelRatio(this.perf.ratio);
+      this.renderer.setSize(w, h, false);
+    }
     if (this.cam) { this.cam.camera.aspect = w / h; this.cam.viewportHeightPx = h; this.cam.camera.updateProjectionMatrix(); }
   }
 
@@ -166,8 +227,11 @@ export class Game {
 
   /** rAF driver: fixed-step accumulator, ?slow scales sim time, render interpolates. */
   frame(now: number): void {
-    const realDt = this.last ? Math.min(0.1, (now - this.last) / 1000) : 0;
+    const intervalMs = this.last ? now - this.last : 0;
+    const realDt = Math.max(0, Math.min(0.1, intervalMs / 1000)); // clamp: hitches and backwards clocks
     this.last = now;
+    const r = this.perf.sample(intervalMs);
+    if (r !== null) this.resize();
     if (this.running && !this.paused) {
       this.acc += realDt * this.flags.slow;
       let n = 0;
@@ -182,6 +246,11 @@ export class Game {
 
   render(dt: number, alpha = 1): void {
     const p = this.sim.p;
+    if (this.canvas.width === 0 || this.canvas.height === 0) this.resize();
+    this.portrait = this.resolvePortrait();
+    this.cam.portrait = this.portrait;
+    this.updateHint();
+    if (this.pauseBtn) this.pauseBtn.hidden = !(this.running && !this.paused && this.isTouchUi());
     const jump = Math.abs(p.s - this.prev.s) > 20;
     const a = jump || this.sim.p.hitstop > 0 ? 1 : alpha;
     const pose: TackPose = {

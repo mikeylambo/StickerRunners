@@ -73,3 +73,51 @@ Every assumption made while building, per CLAUDE.md ("unspecified + reversible +
 
 ## 2026-11-09 — Vendored the Web Shell for deploys
 The Shell was a `github:` dependency on a private repo, so Vercel's `npm install` failed (SSH publickey denied). Its built package (dist, package.json, tools, README) from commit 7003ec7 now lives in `vendor/web-shell`, and package.json points at `file:vendor/web-shell`. ESLint ignores `vendor/**`. To update the Shell: rebuild it at the new commit and recopy those files. Gates pass.
+
+## Phase 0b — 2026-11-09: Mac blank screen, touch, orientation
+
+No sim tuning or feel values changed. The desktop smoke run is identical to before (same 52.617 s autopilot run).
+
+### Mac blank screen
+| # | Finding / decision | Status |
+|---|---|---|
+| 47 | **Suspected cause (not confirmed on Mike's Mac):** the WebGL context fails to create. Three r180 is WebGL2-only, and context creation can fail with GPU blocklisting, hardware acceleration off, or a dual-GPU Mac refusing `high-performance`. The `new Game()` constructor then throws after the Shell menus are built: the menus keep working, nothing listens for `level:loaded`, and selecting a mode shows the (CSS-hidden) gameplay screen, i.e. blank. The error only went to the console. **Reproduced exactly** with the old deployed build in Chromium with WebGL disabled: menus work, mode select → blank, console says `Error creating WebGL context.` | Mechanism reproduced. Mike's actual cause is unconfirmed; the overlay will name it. |
+| 48 | Renderer creation now tries `high-performance` + antialias, then `default` without antialias, then `low-power`. The fallback used is reported on screen. If all three fail, the overlay says so and suggests turning on hardware acceleration. | Verified headless with WebGL disabled. |
+| 49 | Error overlay: an inline classic script in `index.html` (it works even if the bundle fails to evaluate) catches `error` and `unhandledrejection`. The game reports shader compile/link failures (`renderer.debug.checkShaderErrors = true` + `onShaderError`), `webglcontextlost`/`restored`, and frame exceptions. Plain text, selectable, has a close button, ships in production. | Verified: no-WebGL, forced context loss, and an injected frame throw. |
+| 50 | The rAF loop schedules the next frame **before** running this one, and catches errors. Previously one throw stopped the loop for good (a frozen or blank canvas). | Verified: the loop continued after an injected throw. |
+| 51 | **Two owners of one drawing buffer, fixed.** The Shell's `createThreeStarterAdapter` now gets a detached canvas. The game sizes `#game-canvas` from its CSS box (`clientWidth/Height`) via a `ResizeObserver`, plus on window resize, on `start()`, and whenever the buffer is found at 0×0 before a frame. | Bug regardless of the Mac. Fixed. |
+| 52 | Hi-DPI / ProMotion: pixel ratio is capped at 2. The fixed-60 Hz accumulator was driven at 120, 60 and 30 Hz for 5 s each: sim time 4.98–5.00 s every time (no stall, no spiral). Negative or huge frame intervals are clamped. | Verified headless. |
+| 53 | Safari/WebKit audit: all GLSL goes through Three's ShaderMaterial prefixing (precision qualifiers added by Three). The shaders use `texture2D` (Three maps it for GLSL3), constant-bound loops, and no Chrome-only extensions. Top-level await needs Safari 15+, and Vite's default target is Safari 16. Nothing Chrome-only found. | **WebKit itself not run here**; only Chromium is installed in this sandbox. |
+| 54 | `?diag` shows an on-screen line: fps, avg/p95 frame interval, dpr → render ratio, drawing-buffer size, orientation, which context attempt succeeded, GPU string. | For measuring real devices without a console. |
+
+### Touch (one thumb) — ⚑ feel
+| # | Decision | Why |
+|---|---|---|
+| 55 | ⚑ **Gesture window, 70 ms (~4 sim frames).** Each touch is classified as a flick (kick-off), a horizontal drag (steer-only) or a hold (peel) within this window. **Touch peel is therefore ~4 frames later than keyboard/pad peel.** Tunable `sr.touch.gestureWindowMs`; at 0 peel is instant, but flicks also peel. | The brief requires that a kick flick never peels, and that needs a decision window. |
+| 56 | ⚑ **Steer while stuck = a touch that starts as a horizontal drag** (≥ 14 px inside the window). That touch steers and never peels; lift and touch again to peel. A held (peel) touch steers/aims with relative drag. Full steer = 48 CSS px of drag from the touch-down point, with a 4 px deadzone. | "Hold anywhere = peel" plus "drag = steer while stuck" conflict for one finger. Resolved by how the touch starts. |
+| 57 | Kick flick = ≥ 24 px up, more vertical than horizontal (1.5×), within 180 ms. | Distance/time thresholds per the brief. |
+| 58 | A tap released inside the window = a peel-tap (peel one tick, then slap), like tapping Space. A second finger is ignored (reserved for Patch). | |
+| 59 | Pause: a 52 px button, top-right, offset by safe-area insets, shown only while playing on a touch UI. The Shell pause/results/retry screens are tapped directly (they're buttons). | |
+| 60 | No scroll, zoom, long-press or selection: `touch-action:none`, `user-select:none`, `-webkit-touch-callout:none`, viewport `maximum-scale=1,user-scalable=no`, plus `touchmove`/`gesturestart`/`contextmenu` preventDefault (except inside the error overlay, Shell panels and the tuning panel). The Shell viewport policy runs without safe-area padding so the canvas goes full-bleed. | |
+| 61 | Audio unlock on the first `pointerdown` and on `touchend` (iOS). | Not verified by ear. |
+| 62 | Touch hint: "HOLD PEEL · LET GO SLAP / DRAG STEER · FLICK UP KICK-OFF", shown on coarse-pointer devices or after the first touch. In portrait it sits at the top (Tack rides the lower third). | |
+
+### Orientation A/B
+| # | Decision | Measured (headless Chromium, emulated devices, Tack at 32 m/s) |
+|---|---|---|
+| 63 | `?orient=landscape|portrait`, default `auto` (portrait if the viewport is taller than wide). Live toggle: `sr.camera.orient` in the backtick panel. | |
+| 64 | **Landscape = the Phase 0 camera, unchanged** (FOV 22°, pitch 38°, yaw 30°, distance 110, lead base 4). | iPhone 13 landscape (750×342): 2.47 s of road ahead; **Tack ≈ 25 CSS px tall** (the same share of screen height as on desktop, but under the 48 px readability target). |
+| 65 | ⚑ **Portrait:** yaw 90° (camera behind Tack, ribbon runs bottom → top, rail on the right), pitch 38° (unchanged), **FOV 30°, distance 85 m, lead base 10 m**. The GDD's 22° FOV is a landscape number: at 22° portrait showed only 1.72 s ahead, and pushing Tack lower to compensate put it under the thumb. | iPhone 13 (390×664): **2.19 s ahead, Tack 52 CSS px**, 81% down the screen. Pixel 7 (412×839): 2.19 s, 65 px. iPhone SE (320×568): 2.19 s, **44 px** (below 48). |
+| 66 | Forcing `?orient=landscape` on a phone held upright frames badly (0.9 s ahead, Tack at the left edge). For the landscape A/B, hold the phone sideways. | |
+
+### Mobile performance
+| # | Decision | Status |
+|---|---|---|
+| 67 | Pixel ratio capped at `sr.render.maxPixelRatio` = 2. Antialias is off on coarse-pointer devices with dpr ≥ 2 (MSAA is redundant at that density). | |
+| 68 | Adaptive resolution: if the average frame interval stays above 19 ms for 2 s, the pixel ratio drops by 0.25, never below 1. Presentation only. | |
+| 69 | **Real-device frame time is unmeasured.** No phone was available to this build. `?diag` reports it. | Unmeasured |
+
+### Gates
+| # | Decision |
+|---|---|
+| 70 | `npm run smoke` now runs the desktop smoke **and** `tools/touch-e2e.mjs`: an emulated iPhone 13 in portrait and landscape, Shell flow by tap only, pause button, hold → drag → release over gap 1 (slap ≥ 90% asserted), flick = kick (no peel), drag = steer (no peel), finish → results → tap Retry. Touches are real CDP touch events → pointer events (`pointerType: "touch"`). Emulated on Chromium, not WebKit/iOS Safari. |

@@ -114,7 +114,42 @@ export const camera = tunables.define("sr.camera", {
   // why: heading follows the track so curves keep the diagonal; slower than position to avoid swim.
   yawSmoothTime: { min: 0.05, max: 3, step: 0.05, default: 0.6, label: "heading smooth s" },
   // why: camera follows lateral position partially so the 6 m ribbon stays framed. (DECISIONS)
-  lateralFollow: { min: 0, max: 1, step: 0.05, default: 0.5, label: "lateral follow" }
+  lateralFollow: { min: 0, max: 1, step: 0.05, default: 0.5, label: "lateral follow" },
+  // why: Phase 0b orientation A/B. auto = follow the device (portrait when taller than wide); ?orient= overrides.
+  orient: { options: ["auto", "landscape", "portrait"] as const, default: "auto", label: "orientation" },
+  // why: portrait runs the ribbon bottom → top: camera swings behind Tack (90° = straight up-screen), pitch unchanged.
+  portraitYawDeg: { min: 30, max: 90, step: 0.5, default: 90, label: "portrait yaw °" },
+  // why: portrait framing measured so ≥ 2.0 s of road is visible ahead and Tack is ≥ 48 CSS px on a 390×664 phone. (DECISIONS)
+  portraitDistance: { min: 20, max: 300, step: 1, default: 85, label: "portrait distance m" },
+  // why: portrait screen centre sits this far ahead so Tack rides in the lower third. Tuned by measurement.
+  portraitLeadBase: { min: -20, max: 60, step: 0.5, default: 10, label: "portrait lead base m" },
+  // why: portrait vertical FOV; the GDD's 22° is a landscape number. Tuned by measurement. (DECISIONS)
+  portraitFov: { min: 5, max: 70, step: 0.5, default: 30, label: "portrait FOV °" }
+});
+
+export const touch = tunables.define("sr.touch", {
+  // why: time to tell a kick-off flick or a steer-drag from a peel-hold. This is added peel latency on touch only
+  // (keyboard/pad peel is instant). 70 ms ≈ 4 sim frames. 0 = instant peel, but flicks then also peel. (DECISIONS)
+  gestureWindowMs: { min: 0, max: 200, step: 5, default: 70, label: "gesture window ms" },
+  // why: horizontal thumb travel (CSS px) from the touch-down point for full lateral steer. ~1 cm on a phone.
+  steerFullPx: { min: 10, max: 200, step: 1, default: 48, label: "drag for full steer px" },
+  // why: drag shorter than this is thumb jitter, not steer.
+  steerDeadPx: { min: 0, max: 20, step: 0.5, default: 4, label: "steer deadzone px" },
+  // why: horizontal movement inside the gesture window that marks the touch as steer-only (stay stuck, no peel).
+  steerStartPx: { min: 4, max: 60, step: 1, default: 14, label: "steer-drag start px" },
+  // why: upward travel that makes a flick a kick-off; well above jitter, short enough for a thumb flick.
+  kickMinPx: { min: 8, max: 120, step: 1, default: 24, label: "kick flick min px" },
+  // why: a kick flick must finish (or reach kickMinPx) within this time; slower upward drags are not kicks.
+  kickMaxMs: { min: 40, max: 400, step: 5, default: 180, label: "kick flick max ms" }
+});
+
+export const render = tunables.define("sr.render", {
+  // why: Phase 0b mobile perf — never render above 2× device pixels.
+  maxPixelRatio: { min: 0.5, max: 3, step: 0.25, default: 2, label: "max pixel ratio" },
+  // why: floor for the adaptive drop; below 1× the die-cut border and keyline get mushy.
+  minPixelRatio: { min: 0.5, max: 2, step: 0.25, default: 1, label: "min pixel ratio" },
+  // why: if the average frame interval stays above this (60 fps budget + slack) for 2 s, drop pixel ratio a step.
+  frameBudgetMs: { min: 8, max: 50, step: 0.5, default: 19, label: "frame budget ms" }
 });
 
 export const feel = tunables.define("sr.feel", {

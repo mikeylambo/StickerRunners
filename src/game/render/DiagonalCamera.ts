@@ -32,6 +32,15 @@ export class DiagonalCamera {
   private shakePx = 0;
   private punch = 0;
   viewportHeightPx = 720;
+  /** Resolved orientation (Game decides from ?orient / panel / device aspect). Landscape = the GDD camera, unchanged. */
+  portrait = false;
+
+  /** Active framing: landscape uses the GDD values; portrait swings behind Tack so travel is up-screen. */
+  get params(): { fov: number; yawDeg: number; distance: number; leadBase: number } {
+    return this.portrait
+      ? { fov: camT.portraitFov, yawDeg: camT.portraitYawDeg, distance: camT.portraitDistance, leadBase: camT.portraitLeadBase }
+      : { fov: camT.fov, yawDeg: camT.yawDeg, distance: camT.distance, leadBase: camT.leadBase };
+  }
 
   constructor(private readonly track: Track) {}
 
@@ -42,12 +51,13 @@ export class DiagonalCamera {
 
   /** World metres per screen pixel at the target distance. */
   get worldPerPx(): number {
-    return (2 * camT.distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) / Math.max(1, this.viewportHeightPx);
+    return (2 * this.params.distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) / Math.max(1, this.viewportHeightPx);
   }
 
   update(dt: number, s: number, lat: number, speed: number, reducedShake = 1): void {
     const tr = this.track;
-    const st = s + camT.leadBase + speed * camT.leadTime;
+    const P = this.params;
+    const st = s + P.leadBase + speed * camT.leadTime;
     const f = tr.frameAt(st);
     const goal = tr.toWorld(st, lat * camT.lateralFollow, 0, f);
     // unwrap heading so smoothing never spins the long way round
@@ -65,16 +75,16 @@ export class DiagonalCamera {
       this.target.z = smoothDamp(this.target.z, goal.z, this.vel[2], camT.smoothTime, dt);
       this.heading = smoothDamp(this.heading, h, this.headingVel, camT.yawSmoothTime, dt);
     }
-    const yaw = THREE.MathUtils.degToRad(camT.yawDeg);
+    const yaw = THREE.MathUtils.degToRad(P.yawDeg);
     const pitch = THREE.MathUtils.degToRad(camT.pitchDeg);
     const Th = new THREE.Vector3(Math.cos(this.heading), 0, -Math.sin(this.heading));
     const Rh = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
     const viewH = Rh.clone().multiplyScalar(-Math.cos(yaw)).addScaledVector(Th, Math.sin(yaw)).normalize();
     const viewDir = viewH.multiplyScalar(Math.cos(pitch)).add(new THREE.Vector3(0, -Math.sin(pitch), 0)).normalize();
     const c = this.camera;
-    c.fov = camT.fov - (this.punch > 0 ? feel.zoomPunchDeg : 0);
+    c.fov = P.fov - (this.punch > 0 ? feel.zoomPunchDeg : 0);
     if (this.punch > 0) this.punch--;
-    c.position.copy(this.target).addScaledVector(viewDir, -camT.distance);
+    c.position.copy(this.target).addScaledVector(viewDir, -P.distance);
     c.up.set(0, 1, 0);
     c.lookAt(this.target);
     if (this.shakeFrames > 0) {

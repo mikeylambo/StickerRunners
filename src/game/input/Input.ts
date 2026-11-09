@@ -4,9 +4,11 @@
  * Steer is lateral on the ribbon: -1 = toward the void (screen upper-left), +1 = toward the rail
  * (screen lower-right). Keyboard: A/W/←/↑ = void side, D/S/→/↓ = rail side. Gamepad left stick:
  * right or down = rail side (DECISIONS). Peel: Space / A (hold). Kick-off: Shift / X.
+ * Touch (one thumb): see Touch.ts — hold = peel, release = slap, drag = steer/aim, flick up = kick-off.
  */
 import type { InputFrame } from "../sim/types";
 import { input as inputT } from "../../../config/tuning";
+import { TouchGestures } from "./Touch";
 
 const VOID_KEYS = new Set(["KeyA", "KeyW", "ArrowLeft", "ArrowUp"]);
 const RAIL_KEYS = new Set(["KeyD", "KeyS", "ArrowRight", "ArrowDown"]);
@@ -19,6 +21,9 @@ export class Input {
   private padKickPrev = false;
   enabled = true;
   onAnyInput: (() => void) | null = null;
+  readonly touch = new TouchGestures();
+  /** True once a touch has been seen (switches the hint, shows the pause button). */
+  touchSeen = false;
 
   attach(target: Window = window): () => void {
     const kd = (e: KeyboardEvent) => {
@@ -35,15 +40,22 @@ export class Input {
     target.addEventListener("keyup", ku);
     target.addEventListener("blur", blur);
     target.addEventListener("pointerdown", pd);
+    // iOS unlocks Web Audio most reliably on touchend
+    target.addEventListener("touchend", pd, { passive: true });
+    this.touch.onTouch = () => { this.touchSeen = true; this.onAnyInput?.(); };
+    const detachTouch = this.touch.attach(target);
     return () => {
+      detachTouch();
+      target.removeEventListener("touchend", pd);
       target.removeEventListener("keydown", kd); target.removeEventListener("keyup", ku);
       target.removeEventListener("blur", blur); target.removeEventListener("pointerdown", pd);
     };
   }
 
   private pad(): Gamepad | null {
-    const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
-    for (const p of pads) if (p && p.connected) return p;
+    let pads: ArrayLike<Gamepad | null>;
+    try { pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : []; } catch { pads = []; }
+    for (let i = 0; i < pads.length; i++) { const p = pads[i]; if (p && p.connected) return p; }
     return null;
   }
 
@@ -70,6 +82,8 @@ export class Input {
       if (kp && !this.padKickPrev) kick = true;
       this.padKickPrev = kp;
     }
+    const t = this.touch.sample();
+    if (t.active) { steer += t.steer; peel = peel || t.peel; kick = kick || t.kick; }
     if (!this.enabled) return { steer: 0, peel: false, kick: false };
     return { steer: Math.max(-1, Math.min(1, steer)), peel, kick };
   }
