@@ -1,0 +1,98 @@
+{
+  "name": "@slu/web-shell",
+  "version": "1.3.0",
+  "description": "Renderer-neutral web game shell with composable genre frames and reusable production systems.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./frames": "./dist/frames/index.js",
+    "./adapters": "./dist/adapters/index.js",
+    "./modules": "./dist/modules/index.js",
+    "./assemblies": "./dist/assemblies/index.js",
+    "./ui-shell": "./dist/ui-shell/index.js",
+    "./bootstrap": "./dist/bootstrap/index.js",
+    "./motion": "./dist/motion/index.js",
+    "./impact": "./dist/impact/index.js",
+    "./tuning": "./dist/tuning/index.js",
+    "./tuning/panel": "./dist/tuning/TuningPanel.js",
+    "./look": "./dist/look/index.js",
+    "./look/three": "./dist/look/three/index.js",
+    "./look/vite": "./dist/look/vite/index.js",
+    "./feel": "./dist/feel/index.js",
+    "./feel/three": "./dist/feel/three/index.js"
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && node tools/build-glsl.mjs && tsc -p tsconfig.json",
+    "check": "node tools/build-glsl.mjs && tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "budget": "node tools/slu-budget.mjs",
+    "verify": "npm run verify:version && npm run verify:base && npm run verify:git-install && npm run verify:consumers && npm run verify:e2e && npm run budget",
+    "create-game": "node tools/create-slu-game.mjs",
+    "verify:base": "npm run check && npm test",
+    "verify:consumers": "node tools/verify-consumers.mjs",
+    "verify:e2e": "node tools/verify-browser-e2e.mjs",
+    "certify:web": "npm run verify && node tools/slu-certify.mjs web",
+    "certify:mobile": "npm run verify && node tools/slu-certify.mjs mobile",
+    "certify:controller": "npm run verify && node tools/slu-certify.mjs controller",
+    "certify:release": "npm run verify && node tools/slu-certify.mjs release",
+    "setup:img2threejs": "powershell -ExecutionPolicy Bypass -File tools/setup-img2threejs.ps1",
+    "motion:pack": "npm run build && node tools/slu-motion-pack.mjs",
+    "motion:godot-install": "node tools/install-slu-motion-godot.mjs",
+    "verify:version": "node tools/verify-version.mjs",
+    "verify:git-install": "node tools/verify-git-install.mjs",
+    "release": "node tools/release.mjs",
+    "lookdev": "vite --config lookdev/vite.config.ts",
+    "lookdev:build": "vite build --config lookdev/vite.config.ts",
+    "lookdev:capture": "npm run lookdev:build && node tools/lookdev-capture.mjs"
+  },
+  "devDependencies": {
+    "@types/three": "^0.180.0",
+    "three": "^0.180.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.3.7"
+  },
+  "keywords": [
+    "game",
+    "webgame",
+    "threejs",
+    "babylonjs",
+    "canvas2d",
+    "slu"
+  ],
+  "license": "UNLICENSED",
+  "bin": {
+    "create-slu-game": "./tools/create-slu-game.mjs",
+    "slu-certify": "./tools/slu-certify.mjs",
+    "slu-budget": "./tools/slu-budget.mjs"
+  },
+  "peerDependencies": {
+    "pixi.js": ">=7.0.0",
+    "three": ">=0.160.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    },
+    "pixi.js": {
+      "optional": true
+    }
+  },
+  "files": [
+    "dist",
+    "tools/*.mjs",
+    "tools/e2e",
+    "skills",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "CHANGELOG.md",
+    "docs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mikeylambo/Web-Game-Shell-v1.02.git"
+  }
+}

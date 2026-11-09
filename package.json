@@ -19,7 +19,7 @@
     "certify:release": "npm run verify && slu-certify release"
   },
   "dependencies": {
-    "@slu/web-shell": "github:mikeylambo/Web-Game-Shell-v1.02#7003ec7a46f0de4c86b8dbb28fea81c10d4f21fa",
+    "@slu/web-shell": "file:vendor/web-shell",
     "three": "^0.180.0"
   },
   "devDependencies": {

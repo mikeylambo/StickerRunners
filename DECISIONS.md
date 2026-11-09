@@ -70,3 +70,6 @@ Every assumption made while building, per CLAUDE.md ("unspecified + reversible +
 | 44 | URL flags: `?god`, `?slow=0.25`, `?tells` (draws surface/hazard rects, the live aim axis and the target a release would pick), `?quick`, plus `?step` (no rAF; advance with `__GAME.step(n)` / `__GAME.run(n)`) and `?bot` (autopilot). | GDD §32 and handoff step 10. |
 | 45 | `window.__GAME`: `state`, `step(n, input?)`, `run(ticks)`, `place(s, lat, h, n)`, `setAutopilot`, `tunables`, `events()`. | Headless tests and capture. |
 | 46 | Changing `ribbonWidth` in the panel only takes effect on Restart/Retry (the course is rebuilt). The blades stay ±3 m. | Rebuilding meshes every frame isn't worth it. |
+
+## 2026-11-09 — Vendored the Web Shell for deploys
+The Shell was a `github:` dependency on a private repo, so Vercel's `npm install` failed (SSH publickey denied). Its built package (dist, package.json, tools, README) from commit 7003ec7 now lives in `vendor/web-shell`, and package.json points at `file:vendor/web-shell`. ESLint ignores `vendor/**`. To update the Shell: rebuild it at the new commit and recopy those files. Gates pass.
