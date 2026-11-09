@@ -27,12 +27,15 @@ const fail = (tag, msg) => { console.error(`touch[${tag}]: FAIL — ${msg}`); fa
 const ok = (tag, msg) => console.log(`touch[${tag}]: ok — ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const server = await preview({ preview: { port: 0, strictPort: false }, logLevel: "silent" });
-const url = server.resolvedUrls.local[0];
-const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+// SR_URL=https://… runs the same checks against a deployed build instead of a local preview.
+const remote = process.env.SR_URL;
+const server = remote ? null : await preview({ preview: { port: 0, strictPort: false }, logLevel: "silent" });
+const url = remote ? (remote.endsWith("/") ? remote : `${remote}/`) : server.resolvedUrls.local[0];
+const proxy = remote && process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY } : undefined;
+const browser = await chromium.launch({ proxy, args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 
 async function runDevice(tag, deviceName) {
-  const ctx = await browser.newContext({ ...devices[deviceName] });
+  const ctx = await browser.newContext({ ...devices[deviceName], ignoreHTTPSErrors: !!remote });
   const pg = await ctx.newPage();
   const errors = [];
   pg.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
@@ -155,7 +158,7 @@ try {
   await runDevice("landscape", "iPhone 13 landscape");
 } finally {
   await browser.close();
-  await new Promise((r) => server.httpServer.close(r));
+  if (server) await new Promise((r) => server.httpServer.close(r));
 }
 if (failed) process.exit(1);
 console.log(`touch: PASS (screenshots in ${path.relative(process.cwd(), outDir)}/)`);
