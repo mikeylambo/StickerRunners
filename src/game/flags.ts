@@ -1,4 +1,4 @@
-/** URL flags (GDD §32): ?god ?slow=0.25 ?tells ?quick, plus ?step (manual stepping), ?bot (autopilot), ?orient, ?diag. */
+/** URL flags (GDD §32): ?god ?slow=0.25 ?tells ?quick, plus ?step (manual stepping), ?bot (autopilot), ?orient, ?diag, ?stage=web, ?line. */
 export interface Flags {
   god: boolean;
   slow: number;
@@ -10,6 +10,10 @@ export interface Flags {
   orient: "auto" | "landscape" | "portrait";
   /** ?diag: on-screen fps / frame time / GPU / buffer size line. */
   diag: boolean;
+  /** ?stage=web: the Phase 0c dense web section. Default: the Phase 0 ribbon. */
+  stage: "ribbon" | "web";
+  /** ?line=fast|safe: which line the web-stage ?bot plays (default safe). */
+  line: "safe" | "fast";
 }
 
 export function readFlags(search = typeof location !== "undefined" ? location.search : ""): Flags {
@@ -23,6 +27,8 @@ export function readFlags(search = typeof location !== "undefined" ? location.se
     step: q.has("step"),
     bot: q.has("bot"),
     orient: q.get("orient") === "portrait" ? "portrait" : q.get("orient") === "landscape" ? "landscape" : "auto",
-    diag: q.has("diag")
+    diag: q.has("diag"),
+    stage: q.get("stage") === "web" ? "web" : "ribbon",
+    line: q.get("line") === "fast" ? "fast" : "safe"
   };
 }

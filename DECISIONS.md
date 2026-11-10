@@ -121,3 +121,48 @@ No sim tuning or feel values changed. The desktop smoke run is identical to befo
 | # | Decision |
 |---|---|
 | 70 | `npm run smoke` now runs the desktop smoke **and** `tools/touch-e2e.mjs`: an emulated iPhone 13 in portrait and landscape, Shell flow by tap only, pause button, hold → drag → release over gap 1 (slap ≥ 90% asserted), flick = kick (no peel), drag = steer (no peel), finish → results → tap Retry. Touches are real CDP touch events → pointer events (`pointerType: "touch"`). Emulated on Chromium, not WebKit/iOS Safari. |
+
+## Phase 0c — 2026-11-10: the "web" test (`?stage=web`)
+
+The question: does peel → slap feel good when the world is dense with surfaces? **No new verbs, and no peel/slap tuning changed.** The Phase 0 ribbon is unchanged: same autopilot result (52.617 s, 12 slaps), and all earlier tests pass. The vision note referenced in the brief was not attached to the session; this build follows the prompt only.
+
+### Where it lives
+| # | Decision | Why |
+|---|---|---|
+| 71 | The web section is a separate stage behind `?stage=web`, not appended to the ribbon. | Keeps the Phase 0 ribbon (and its gates) untouched; Mike can A/B by URL. `?stage=web&quick` skips menus. |
+| 72 | 810 m track, mostly straight with one gentle 10° bend; finish at 710 m. Lines take ~18–24 s. | "~20 s section". |
+
+### Sim generalisation (same rules, more surface types) — ⚑ feel-adjacent
+| # | Decision | Why |
+|---|---|---|
+| 73 | Surfaces have a **face axis**. Floors/undersides keep the old maths (face ⟂ height). **Walls** have their face ⟂ lateral, spanning a height range. Targeting, stick, peel, coyote and the stuck invariant all work per axis. For floors the code paths are identical to before (verified: ribbon results unchanged). | Brief item 3 needs a vertical surface you can ride. |
+| 74 | ⚑ **On a wall, steer moves Tack up/down the wall** (screen-up keys / drag left = climb; right/down = descend). Auto-run continues along the track. **Peeling off a wall lifts 0.9 m away from it laterally** (the same hover, rotated). Steer still moves height while peeled. | Same rule as floors: peel lifts along the face normal; steer moves the in-plane cross axis. |
+| 75 | ⚑ **You leave a wall by sliding off an edge** (bottom, top or its end) while peeled. Releasing while still over the wall re-slaps the wall: the existing "the surface your shadow is on is always a valid, nearest target" rule, now applied along the wall's normal. | No new rule. It does make walls "ride, slide off, slap". |
+| 76 | The "your shadow surface" slap candidate only looks along the face axis Tack is on/peeled from (floors → height, walls → lateral). | Otherwise a wall 6 m to the side would count as "beneath" a floor rider. |
+| 77 | **Moving platforms** move sideways or up/down as a sine of **sim time** (deterministic). A stuck Tack is carried by the platform's motion each tick. The renderer poses the same platforms from the same time. | Brief item 2, without breaking determinism. |
+| 78 | Blades now sit on any strand (each has a face height). They apply to stuck riders on the top face of road/strands only, so riding a strand's underside skips them. | Brief item 4: ride the underside to stay fast. |
+| 79 | Respawn in the web stage: the widest static strand containing the respawn point, centred, clean for 12 m. | There is no "road" there. |
+| 80 | The camera follows 60% of Tack's height in the web stage only (`cameraHeightFollow`). It's 0 on the ribbon (unchanged). | Strands span h −3…+7; without it the high and low layers drift off-frame. |
+
+### Layout — two lines (brief item 6)
+| # | Decision | Why |
+|---|---|---|
+| 81 | **The web runs downhill.** Peel hovers 0.9 m and never climbs, so a slap can reach a surface at most ~0.85 m *above* you. Height is gained only by riding the wall or a moving platform. | Pillar 1 (no jump) shapes the level. |
+| 82 | **Safe line:** wide railed strands A (h 3) → B (1.5) → C (0) → D (−2, finish). 3 transfers. Each of A, B and C carries a blade field (blades every 10 m): hop them (peel/slap) or eat them (−30% speed each). | "Safe" = can't fall off (rails, wide), but slow. |
+| 83 | **Fast line:** A → F1 (void-side strand) → **wall** (ride it down) → **P1** (slides sideways) → **B's underside** (under B's blade field) → F3 (rail-side strand) → **P2** (lifts up/down) → D. 7 transfers, all clean surfaces, so kick-off stays usable. | Uses every element the brief asked for. |
+| 84 | Measured with the line bots (pure sim): **safe 23.6 s, fast 18.1 s → fast is 23% quicker**, with 7 transfers vs 3. In the browser (with the 1 s finish coast): 24.6 s vs 19.2 s, 22%. Both lines: zero falls, every slap 92% kept. | Brief: fast ≥ 15% quicker with more transfers. Gated. |
+| 85 | The speed gap comes from **blades and kick-off availability**, not path length (both lines cover the same track distance). The safe line spends its blade fields peel-hopping (no kick-off while peeled, 4%/s decay, 92% per slap); the fast line's clean strands let kick-off hold ~40 m/s. | It's the only honest lever with no new mechanics or tuning: the slap/peel rules make transfers nearly free in speed, so avoiding blades is the win. |
+
+### Density (brief item 5)
+| # | Decision | Why |
+|---|---|---|
+| 86 | "≥ 2 valid slap targets within one peel" is checked by a **probe that runs the real sim on throwaway clones**: from the standing point, peel now, hold steer ∈ {−1, −½, 0, ½, 1}, release after 3…90 ticks (the 1.5 s adhesion), and record which surface each slap lands on. **The surface you're standing on doesn't count**; it needs ≥ 2 *other* surfaces. | A literal, mechanical reading of "reachable within one peel". |
+| 87 | Gate: every standable surface sampled every 8 m (centre plus both edges on wide strands; three heights on the wall), at **two moving-platform phases**: 1,470 probes, all ≥ 2. | `tests/web.test.ts`. |
+| 88 | To get there: generated flanking lanes at lateral ±7 and ±14 (≈45 m segments, short gaps, each sits 0.4/0.6 m below the centre strand so neighbours can reach each other), a low layer under B (U0/U1/U2), floors beside the wall (W1/W2/W5) plus a high ledge (H1), and a few far platforms near the finish. Total ~70 surfaces. | The probe found 237/475 weak points on the first layout. The biggest culprit was "nearest valid target wins": a close surface shadows a farther one. |
+| 89 | `?tells` in the web stage puts a cyan marker on every other surface the probe can reach from where Tack stands (refreshed ~5×/s while stuck), alongside the existing aim line and picked-target marker. | Brief: "show them with ?tells". |
+
+### Presentation
+| # | Decision |
+|---|---|
+| 90 | Each strand/platform is one flat mid-value colour, with darker sides and a lighter lip on void edges. Stickable undersides get a cyan-tinted band. The wall is a solid purple face. Blades stay red (no white). Tack's ivory border remains the lightest thing on screen. |
+| 91 | Bots: `?bot` on the web stage plays the safe line, `?bot&line=fast` the fast one (`src/game/sim/WebBot.ts`: steers to the next surface, peels at the leave point, and releases when the sim's own slap preview *is* the next surface). |

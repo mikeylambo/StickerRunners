@@ -1,4 +1,4 @@
-import type { SurfaceKind } from "./Course";
+import type { SurfaceKind, FaceAxis } from "./Course";
 
 /** One fixed 60 Hz tick of semantic input. Device-agnostic. */
 export interface InputFrame {
@@ -26,7 +26,7 @@ interface At { s: number; lat: number; h: number }
 
 export type SimEvent =
   | ({ type: "peel" } & At)
-  | ({ type: "slap"; entrySpeed: number; exitSpeed: number; n: 1 | -1; surface: SurfaceKind; distance: number } & At)
+  | ({ type: "slap"; entrySpeed: number; exitSpeed: number; n: 1 | -1; axis: FaceAxis; surface: SurfaceKind; surfaceId: number; distance: number } & At)
   | ({ type: "whiff" } & At)
   | ({ type: "land"; n: 1 | -1 } & At)
   | ({ type: "wrap" } & At)

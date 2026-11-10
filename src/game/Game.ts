@@ -18,6 +18,8 @@ import { Backdrop } from "./render/Backdrop";
 import { DebugView } from "./render/DebugView";
 import type { Flags } from "./flags";
 import { phase0Stage } from "../../data/stages/phase0";
+import { webStage } from "../../data/stages/web";
+import { WebBot } from "./sim/WebBot";
 import { simTuning, move, feel, look, camera as camT } from "../../config/tuning";
 import { createRenderer } from "./render/createRenderer";
 import { PerfGovernor } from "./render/PerfGovernor";
@@ -37,7 +39,7 @@ const EVENT_LOG = 200;
 export class Game {
   course!: Course;
   sim!: Sim;
-  bot!: Autopilot;
+  bot!: { decide(): InputFrame };
   readonly input = new Input();
   readonly sfx = new Sfx();
   readonly renderer: THREE.WebGLRenderer;
@@ -108,13 +110,14 @@ export class Game {
 
   private build(): void {
     this.world.clear();
-    this.course = new Course(phase0Stage, move.ribbonWidth);
+    this.course = new Course(this.flags.stage === "web" ? webStage : phase0Stage, move.ribbonWidth);
     this.sim = new Sim(this.course, simTuning, { god: this.flags.god });
-    this.bot = new Autopilot(this.sim);
+    this.bot = this.flags.stage === "web" ? new WebBot(this.sim, this.flags.line) : new Autopilot(this.sim);
     this.courseView = new CourseView(this.course);
     this.tack = new TackView(this.course);
     this.rings = new SlapRings(this.course.track);
     this.cam = new DiagonalCamera(this.course.track);
+    this.cam.heightFollow = this.course.stage.cameraHeightFollow ?? 0;
     const mid = this.course.track.frameAt(this.course.track.length / 2).pos;
     const backdrop = new Backdrop(new THREE.Vector3(mid.x, mid.y, mid.z), 3200);
     this.world.add(backdrop.group, this.courseView.group, this.rings.group, this.tack.group);
@@ -128,6 +131,7 @@ export class Game {
   start(): void {
     if (Math.abs(this.course.halfWidth * 2 - move.ribbonWidth) > 1e-9) this.build();
     this.sim.reset();
+    if (this.flags.stage === "web") this.bot = new WebBot(this.sim, this.flags.line); // fresh route state
     this.cam.reset();
     this.rings.clear();
     this.eventLog.length = 0;
@@ -209,7 +213,7 @@ export class Game {
         this.sfx.play("slap", Math.min(1.2, 0.7 + e.entrySpeed / 60));
         this.cam.shake(feel.slapShakePx, feel.shakeFrames);
         this.cam.zoomPunch();
-        this.rings.spawn(e.s, e.lat, e.h, e.n, feel.ringLife);
+        this.rings.spawn(e.s, e.lat, e.h, e.n, feel.ringLife, 1, e.axis);
         this.tack.slapped();
         break;
       case "whiff": this.sfx.play("whiff"); break;
@@ -258,7 +262,8 @@ export class Game {
       lat: this.prev.lat + (p.lat - this.prev.lat) * a,
       h: this.prev.h + (p.h - this.prev.h) * a
     };
-    this.cam.update(Math.max(dt, 1e-4), pose.s, pose.lat, p.speed, this.hooks.shakeScale?.() ?? 1);
+    this.cam.update(Math.max(dt, 1e-4), pose.s, pose.lat, p.speed, this.hooks.shakeScale?.() ?? 1, pose.h);
+    this.courseView.update(this.course, this.sim.time);
     this.backdrop.follow(this.cam.camera);
     this.tack.update(dt, pose, p, this.cam.camera, this.cam.worldPerPx);
     this.rings.update(dt);

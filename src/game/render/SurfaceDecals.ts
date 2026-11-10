@@ -4,6 +4,7 @@
  */
 import * as THREE from "three";
 import type { Track } from "../sim/Track";
+import type { FaceAxis } from "../sim/Course";
 
 const decalVert = /* glsl */ `
 varying vec2 vUv;
@@ -36,14 +37,15 @@ const tmpM = new THREE.Matrix4();
 const vT = new THREE.Vector3(); const vR = new THREE.Vector3(); const vU = new THREE.Vector3();
 
 /** Place a unit XY decal in the surface plane at (s, lat, h); n = -1 faces down (underside). */
-export function placeDecal(o: THREE.Object3D, track: Track, s: number, lat: number, h: number, n: 1 | -1, sx: number, sy: number): void {
+export function placeDecal(o: THREE.Object3D, track: Track, s: number, lat: number, h: number, n: 1 | -1, sx: number, sy: number, axis: FaceAxis = "h"): void {
   const f = track.frameAt(s);
-  vT.set(f.T.x, f.T.y, f.T.z); vR.set(f.R.x, f.R.y, f.R.z); vU.set(f.U.x, f.U.y, f.U.z).multiplyScalar(n);
-  // basis: x = T, y = U×T (= -R on top), z = U (decal normal)
-  const y = new THREE.Vector3().crossVectors(vU, vT);
-  tmpM.makeBasis(vT, y, vU);
+  vT.set(f.T.x, f.T.y, f.T.z); vR.set(f.R.x, f.R.y, f.R.z); vU.set(f.U.x, f.U.y, f.U.z);
+  // decal normal: ±U on floors/undersides, ±R on walls. basis: x = T, y = N×T, z = N
+  const N = (axis === "h" ? vU : vR).clone().multiplyScalar(n);
+  const y = new THREE.Vector3().crossVectors(N, vT);
+  tmpM.makeBasis(vT, y, N);
   o.quaternion.setFromRotationMatrix(tmpM);
-  const p = track.toWorld(s, lat, h + n * 0.03, f);
+  const p = axis === "h" ? track.toWorld(s, lat, h + n * 0.03, f) : track.toWorld(s, lat + n * 0.03, h, f);
   o.position.set(p.x, p.y, p.z);
   o.scale.set(sx, sy, 1);
 }
@@ -59,7 +61,7 @@ export function createShadow(): THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMate
 
 export class SlapRings {
   readonly group = new THREE.Group();
-  private readonly pool: Array<{ mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; age: number; life: number; s: number; lat: number; h: number; n: 1 | -1; size: number }> = [];
+  private readonly pool: Array<{ mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; age: number; life: number; s: number; lat: number; h: number; n: 1 | -1; size: number; axis: FaceAxis }> = [];
 
   constructor(private readonly track: Track) {
     for (let i = 0; i < 6; i++) {
@@ -71,14 +73,14 @@ export class SlapRings {
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), m);
       mesh.visible = false;
       this.group.add(mesh);
-      this.pool.push({ mesh, age: 0, life: 0, s: 0, lat: 0, h: 0, n: 1, size: 1 });
+      this.pool.push({ mesh, age: 0, life: 0, s: 0, lat: 0, h: 0, n: 1, size: 1, axis: "h" });
     }
   }
 
-  spawn(s: number, lat: number, h: number, n: 1 | -1, life: number, size = 1): void {
+  spawn(s: number, lat: number, h: number, n: 1 | -1, life: number, size = 1, axis: FaceAxis = "h"): void {
     const oldest = this.pool.reduce((a, b) => (a.age / a.life >= b.age / b.life ? a : b));
     const slot = this.pool.find((p) => !p.mesh.visible) ?? oldest;
-    Object.assign(slot, { age: 0, life, s, lat, h, n, size });
+    Object.assign(slot, { age: 0, life, s, lat, h, n, size, axis });
     slot.mesh.visible = true;
   }
 
@@ -90,7 +92,7 @@ export class SlapRings {
       if (k >= 1) { r.mesh.visible = false; continue; }
       const ease = 1 - Math.pow(1 - k, 3);
       const d = (0.6 + ease * 2.6) * r.size;
-      placeDecal(r.mesh, this.track, r.s, r.lat, r.h, r.n, d, d);
+      placeDecal(r.mesh, this.track, r.s, r.lat, r.h, r.n, d, d, r.axis);
       r.mesh.material.uniforms.uProg.value = k;
     }
   }

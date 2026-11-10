@@ -83,6 +83,27 @@ try {
   const again = await pg.evaluate(() => window.__GAME.step(60));
   if (!again.running || again.s > 60) fail(`retry did not restart the ribbon: ${JSON.stringify(again)}`);
   else ok("retry → back on the ribbon");
+
+  // 4 — Phase 0c web section (?stage=web): the bot runs the safe line, then the fast line, in the real page
+  const times = {};
+  for (const line of ["safe", "fast"]) {
+    const wp = await newPage();
+    await wp.goto(`${url}?quick&step&bot&stage=web&line=${line}`);
+    await wp.waitForFunction(() => !!window.__GAME && window.__GAME.game.running, null, { timeout: 20000 });
+    const ws = await wp.evaluate(() => window.__GAME.run(60 * 60, 300));
+    const w = ws.stats;
+    times[line] = ws.time;
+    if (!ws.finished) fail(`web ${line}: did not finish: ${JSON.stringify(ws)}`);
+    else ok(`web ${line} line: finished in ${ws.time}s sim (${w.slaps} slaps, ${w.peels} peels, ${w.kicks} kick-offs)`);
+    if (w.falls !== 0) fail(`web ${line}: fell out ${w.falls}×`);
+    if (!(w.minSlapKeep >= 0.9)) fail(`web ${line}: a slap kept only ${w.minSlapKeep}`); else ok(`web ${line}: no falls, min slap keep ${w.minSlapKeep}`);
+    await wp.screenshot({ path: path.join(outDir, `04-web-${line}-results.png`) });
+    await wp.close();
+  }
+  if (times.fast && times.safe) {
+    const gain = 1 - times.fast / times.safe;
+    if (gain < 0.15) fail(`web: fast line only ${(gain * 100).toFixed(1)}% quicker`); else ok(`web: fast line ${(gain * 100).toFixed(1)}% quicker than safe`);
+  }
 } catch (e) {
   fail(e instanceof Error ? e.stack ?? e.message : String(e));
 } finally {

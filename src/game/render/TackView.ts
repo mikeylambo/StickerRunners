@@ -45,7 +45,7 @@ export class TackView {
     this.quad.quaternion.copy(camera.quaternion);
 
     // flip when hanging from the underside (n = -1 while stuck there or peeled from it)
-    const under = p.n === -1 && p.state !== "falling" && p.state !== "respawning";
+    const under = p.n === -1 && p.axis === "h" && p.state !== "falling" && p.state !== "respawning";
     this.flip = under ? -1 : 1; // instant: a tween would pass through zero scale
 
     const hgt = look.tackHeight;
@@ -78,15 +78,16 @@ export class TackView {
 
     // contact shadow on whatever surface is straight beneath (along the face normal)
     const n: 1 | -1 = p.n;
-    const below = this.course.surfaceBeneath(pose.s, pose.lat, pose.h, n);
+    const below = this.course.surfaceBeneath(pose.s, pose.lat, pose.h, n, p.axis);
     if (!below || p.state === "respawning") { this.shadow.visible = false; return; }
-    const gap = Math.abs(pose.h - below.h);
+    const onWall = below.axis === "lat";
+    const gap = onWall ? Math.abs(pose.lat - below.wl!) : Math.abs(pose.h - below.h);
     this.shadow.visible = true;
     const soft = Math.min(0.85, gap * 0.55);
     const alpha = Math.max(0.12, 0.78 - gap * 0.28);
     const size = 1 - Math.min(0.35, gap * 0.12);
     this.shadow.material.uniforms.uSoft.value = soft;
     this.shadow.material.uniforms.uAlpha.value = alpha;
-    placeDecal(this.shadow, tr, pose.s, pose.lat, below.h, below.n, 0.6 * size * hgt, 0.42 * size * hgt);
+    placeDecal(this.shadow, tr, pose.s, onWall ? below.wl! : pose.lat, onWall ? pose.h : below.h, below.n, 0.6 * size * hgt, 0.42 * size * hgt, below.axis);
   }
 }

@@ -1,7 +1,7 @@
 /**
  * Slap targeting: nearest valid surface inside a cone toward the stick direction.
  *
- * Works in track space (s, lateral, height) treated as Euclidean; at Phase 0 curvatures
+ * Works on floors (face ⟂ height) and walls (face ⟂ lateral) alike, in track space (s, lateral, height) treated as Euclidean; at Phase 0 curvatures
  * (radius ≥ 350 m) the distortion at |lateral| ≤ 16 m is under 5%.
  *
  * A surface is a candidate only if Tack is on its facing side. Three candidate points per surface:
@@ -11,7 +11,7 @@
  * Valid = within slapRange and within the cone (except (a), which is cone-exempt — DECISIONS.md).
  * Among valid candidates, the nearest wins (handoff step 6).
  */
-import type { Course, Surface } from "./Course";
+import { Course, type Surface, type FaceAxis } from "./Course";
 import type { SlapTuning } from "../../../config/tuning";
 
 export interface SlapTarget {
@@ -40,46 +40,55 @@ export function findSlapTarget(
   steer: number,
   lookAheadS: number,
   t: SlapTuning,
-  belowSheet: number
+  belowSheet: number,
+  /** Face axis of the surface Tack is on / peeled from: "beneath" only looks along this axis. */
+  ownAxis: FaceAxis = "h"
 ): SlapTarget | null {
   const axis = aimAxis(pos.h, steer, t, belowSheet);
   const cosCone = Math.cos((t.slapConeDeg * Math.PI) / 180);
   const range = t.slapRange;
   let best: SlapTarget | null = null;
+  const P = [pos.s, pos.lat, pos.h];
+  const A = [axis.s, axis.l, axis.h];
 
-  const consider = (x: Surface, s: number, l: number, via: SlapTarget["via"]) => {
-    const ds = s - pos.s; const dl = l - pos.lat; const dh = x.h - pos.h;
+  // Points are [s, lat, h]. fa = index of the face axis (2 floors, 1 walls), ca = in-plane cross axis.
+  const consider = (x: Surface, q: number[], via: SlapTarget["via"]) => {
+    const ds = q[0] - P[0]; const dl = q[1] - P[1]; const dh = q[2] - P[2];
     const dist = Math.hypot(ds, dl, dh);
     if (dist > range) return;
     let angleDeg = 0;
     if (via !== "beneath") {
-      const c = dist > 1e-6 ? (ds * axis.s + dl * axis.l + dh * axis.h) / dist : 1;
+      const c = dist > 1e-6 ? (ds * A[0] + dl * A[1] + dh * A[2]) / dist : 1;
       if (c < cosCone) return;
       angleDeg = (Math.acos(clamp(c, -1, 1)) * 180) / Math.PI;
     }
-    if (!best || dist < best.dist) best = { surface: x, s, lat: l, h: x.h, dist, angleDeg, via };
+    if (!best || dist < best.dist) best = { surface: x, s: q[0], lat: q[1], h: q[2], dist, angleDeg, via };
   };
 
   for (const x of course.surfaces) {
     if (x.s1 < pos.s - range || x.s0 > pos.s + range * 2) continue;
-    const facing = (pos.h - x.h) * x.n;
-    if (facing <= 0.02) continue;
-    const inRect = (s: number, l: number) => s >= x.s0 && s < x.s1 && l >= x.l0 && l <= x.l1;
-    // (a) straight along the normal — the surface your shadow is on
+    const fa = x.axis === "h" ? 2 : 1;
+    const ca = x.axis === "h" ? 1 : 2;
+    const fv = Course.face(x);
+    const c0 = x.axis === "h" ? x.l0 : x.h0!;
+    const c1 = x.axis === "h" ? x.l1 : x.h1!;
+    if ((P[fa] - fv) * x.n <= 0.02) continue; // must be on the facing side
+    const inRect = (q: number[]) => q[0] >= x.s0 && q[0] < x.s1 && q[ca] >= c0 && q[ca] <= c1;
+    const pt = (s: number, c: number) => { const q = [s, 0, 0]; q[fa] = fv; q[ca] = c; return q; };
+    // (a) straight along the normal — the surface your shadow is on (same face axis only)
     const sa = pos.s + lookAheadS;
-    if (inRect(sa, pos.lat)) consider(x, sa, pos.lat, "beneath");
+    if (x.axis === ownAxis && inRect(pt(sa, P[ca]))) consider(x, pt(sa, P[ca]), "beneath");
     // (b) aim ray meets the face plane
-    if (axis.h * x.n < 0) {
-      const tt = (x.h - pos.h) / axis.h;
+    if (A[fa] * x.n < 0) {
+      const tt = (fv - P[fa]) / A[fa];
       if (tt > 0 && tt <= range) {
-        const s = pos.s + axis.s * tt; const l = pos.lat + axis.l * tt;
-        if (inRect(s, l)) consider(x, s, l, "ray");
+        const q = pt(P[0] + A[0] * tt, P[ca] + A[ca] * tt);
+        if (inRect(q)) consider(x, q, "ray");
       }
     }
     // (c) nearest face point to the aim point, and to Tack
-    const aimS = pos.s + axis.s * range * 0.5; const aimL = pos.lat + axis.l * range * 0.5;
-    consider(x, clamp(aimS, x.s0, x.s1 - 0.01), clamp(aimL, x.l0, x.l1), "cone");
-    consider(x, clamp(pos.s, x.s0, x.s1 - 0.01), clamp(pos.lat, x.l0, x.l1), "cone");
+    consider(x, pt(clamp(P[0] + A[0] * range * 0.5, x.s0, x.s1 - 0.01), clamp(P[ca] + A[ca] * range * 0.5, c0, c1)), "cone");
+    consider(x, pt(clamp(P[0], x.s0, x.s1 - 0.01), clamp(P[ca], c0, c1)), "cone");
   }
   return best;
 }

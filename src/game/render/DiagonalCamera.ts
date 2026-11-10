@@ -54,12 +54,15 @@ export class DiagonalCamera {
     return (2 * this.params.distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) / Math.max(1, this.viewportHeightPx);
   }
 
-  update(dt: number, s: number, lat: number, speed: number, reducedShake = 1): void {
+  /** Fraction of Tack's height the camera target follows (0 on the flat ribbon; the web stage sets it). */
+  heightFollow = 0;
+
+  update(dt: number, s: number, lat: number, speed: number, reducedShake = 1, height = 0): void {
     const tr = this.track;
     const P = this.params;
     const st = s + P.leadBase + speed * camT.leadTime;
     const f = tr.frameAt(st);
-    const goal = tr.toWorld(st, lat * camT.lateralFollow, 0, f);
+    const goal = tr.toWorld(st, lat * camT.lateralFollow, height * this.heightFollow, f);
     // unwrap heading so smoothing never spins the long way round
     let h = tr.frameAt(s).heading;
     while (h - this.heading > Math.PI) h -= Math.PI * 2;

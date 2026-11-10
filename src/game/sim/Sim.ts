@@ -5,7 +5,7 @@
  * Pillar 1 — Stick or Fall: the only states are stuck-ish (stuck/coyote/slapTravel) and
  * peeled/falling. There is no jump: peel lifts to a fixed hover, it never adds height above that.
  */
-import type { Course, Surface } from "./Course";
+import { Course, type Surface, type FaceAxis } from "./Course";
 import type { SimTuning } from "../../../config/tuning";
 import { findSlapTarget } from "./Targeting";
 import type { InputFrame, PlayerState, SimEvent } from "./types";
@@ -23,6 +23,8 @@ export interface Player {
   surfaceId: number;
   /** Normal of the surface we are on / last left. */
   n: 1 | -1;
+  /** Face axis of that surface: "h" floors/undersides, "lat" walls. */
+  axis: FaceAxis;
   hoverBase: number;
   coyote: number;
   canSlap: boolean;
@@ -62,10 +64,12 @@ export class Sim {
   }
 
   reset(): void {
-    const road = this.course.roadAt(this.course.startS)!;
+    this.course.update(0);
+    const road = this.course.spawnAt(this.course.startS)!;
+    const lat = Math.min(Math.max(this.course.stage.startLat ?? 0, road.l0 + 0.5), road.l1 - 0.5);
     this.p = {
-      state: "start", s: this.course.startS, lat: 0, h: road.h, speed: 0, latVel: 0, vh: 0,
-      adhesion: this.t.peel.adhesionMax, surfaceId: road.id, n: 1, hoverBase: 0, coyote: 0, canSlap: false,
+      state: "start", s: this.course.startS, lat, h: road.h, speed: 0, latVel: 0, vh: 0,
+      adhesion: this.t.peel.adhesionMax, surfaceId: road.id, n: 1, axis: "h", hoverBase: 0, coyote: 0, canSlap: false,
       travel: null, hitstop: 0, kickCd: 0, invuln: 0, offscreen: 0, timer: START_TIME, fallStartS: 0,
       wrapGrace: 0, peelHeldPrev: false, peelBuf: 0, kickBuf: 0, steer: 0
     };
@@ -95,6 +99,8 @@ export class Sim {
     if (p.hitstop > 0) { p.hitstop--; return this.events; }
 
     this.time += DT;
+    this.course.update(this.time);
+    this.carry();
     p.kickCd = Math.max(0, p.kickCd - DT);
     p.invuln = Math.max(0, p.invuln - DT);
 
@@ -136,7 +142,9 @@ export class Sim {
     const target = s * m.lateralSpeed * control;
     const rate = (m.lateralSpeed / Math.max(m.lateralRampTime, 1e-3)) * DT;
     p.latVel += Math.max(-rate, Math.min(rate, target - p.latVel));
-    p.lat += p.latVel * DT;
+    // On (or peeled from) a wall the in-plane cross axis is height: steer -1 (screen-up keys) climbs.
+    if (p.axis === "lat" && p.state !== "falling") p.h -= p.latVel * DT;
+    else p.lat += p.latVel * DT;
     void input;
   }
 
@@ -146,12 +154,31 @@ export class Sim {
     else p.speed = Math.max(m.topSpeed, p.speed - m.overspeedBleed * DT);
   }
 
-  private contains(x: Surface, s: number, lat: number): boolean {
-    return s >= x.s0 && s < x.s1 && lat >= x.l0 && lat <= x.l1;
+  private contains(x: Surface, s: number, lat: number, h = this.p.h): boolean {
+    return this.course.contains(x, s, lat, h);
+  }
+
+  /** Ride a moving surface: apply its motion since last tick to a stuck/coyote Tack. */
+  private carry(): void {
+    const p = this.p;
+    if (p.state !== "stuck" && p.state !== "coyote") return;
+    const x = this.course.surface(p.surfaceId);
+    if (!x?.motion) return;
+    const d = this.course.offsetAt(x, this.time) - this.course.offsetAt(x, this.time - DT);
+    if (x.motion.axis === "lat") p.lat += d;
+    else p.h = x.h;
+    if (x.motion.axis === "h" && p.state === "coyote") p.h = x.h;
+  }
+
+  /** Same-orientation support at Tack's current position (continuing strand, adjacent wall…). */
+  private supportHere(): Surface | undefined {
+    const p = this.p;
+    return p.axis === "h" ? this.course.supportAt(p.s, p.lat, p.h, p.n) : this.course.wallAt(p.s, p.lat, p.h, p.n);
   }
 
   private clampRail(x: Surface): void {
     const p = this.p;
+    if (x.axis !== "h") return;
     if (x.railRight && p.lat > x.l1 - this.halfW) { p.lat = x.l1 - this.halfW; p.latVel = Math.min(p.latVel, 0); }
   }
 
@@ -171,7 +198,7 @@ export class Sim {
     let x = this.course.surface(p.surfaceId)!;
     this.clampRail(x);
     if (!this.contains(x, p.s, p.lat)) {
-      const other = this.course.supportAt(p.s, p.lat, p.h, p.n);
+      const other = this.supportHere();
       if (other) { p.surfaceId = other.id; x = other; }
       else if (this.opts.god && (x.kind === "road")) {
         // ?god: gaps and the void edge are solid
@@ -195,8 +222,8 @@ export class Sim {
         return;
       }
     }
-    if (x.kind === "road" && x.n === 1 && p.invuln <= 0) {
-      const z = this.course.hazardAt(p.s, p.lat, this.halfW);
+    if ((x.kind === "road" || x.kind === "strand") && x.axis === "h" && x.n === 1 && p.invuln <= 0) {
+      const z = this.course.hazardAt(p.s, p.lat, this.halfW, x.h);
       if (z) {
         const before = p.speed;
         p.speed *= m.hazardSpeedKeep; p.invuln = m.hazardInvuln;
@@ -211,7 +238,7 @@ export class Sim {
     const p = this.p;
     this.steer(input, 1);
     p.s += p.speed * DT;
-    const back = this.course.supportAt(p.s, p.lat, p.h, p.n);
+    const back = this.supportHere();
     if (back) { p.state = "stuck"; p.surfaceId = back.id; return; }
     p.coyote--;
     if (this.tryPeel(input)) return;
@@ -222,7 +249,7 @@ export class Sim {
     const p = this.p;
     if (!(p.peelBuf > 0 && input.peel)) return false;
     if (p.state !== "stuck" && p.state !== "coyote") return false;
-    p.state = "peeled"; p.peelBuf = 0; p.hoverBase = p.h; p.vh = 0;
+    p.state = "peeled"; p.peelBuf = 0; p.hoverBase = p.axis === "h" ? p.h : p.lat; p.vh = 0;
     this.stats.peels++;
     this.emit({ type: "peel", ...this.at() });
     return true;
@@ -235,7 +262,9 @@ export class Sim {
     this.steer(input, pt.lateralControl);
     p.s += p.speed * DT;
     const target = p.hoverBase + p.n * pt.peelHeight;
-    p.h += (target - p.h) * (1 - Math.exp(-DT / Math.max(pt.liftTime, 1e-3)));
+    const k = 1 - Math.exp(-DT / Math.max(pt.liftTime, 1e-3));
+    if (p.axis === "h") p.h += (target - p.h) * k;
+    else p.lat += (target - p.lat) * k; // off a wall: lift away along the lateral normal
     if (!input.peel) { this.attemptSlap(); return; }
     if (p.adhesion <= 0) { p.canSlap = true; this.beginFall("adhesion"); }
   }
@@ -243,6 +272,7 @@ export class Sim {
   private beginFall(reason: "adhesion" | "coyote" | "whiff"): void {
     const p = this.p;
     if (reason !== "adhesion") p.canSlap = false;
+    if (p.axis === "lat") { p.axis = "h"; p.n = 1; p.latVel = 0; } // gravity is always -height
     p.state = "falling"; p.vh = Math.min(p.vh, 0); p.offscreen = 0; p.fallStartS = p.s;
     this.emit({ type: "fall", reason, ...this.at() });
   }
@@ -256,7 +286,7 @@ export class Sim {
     p.s += p.speed * DT;
     // land on any top face we pass through (keeps speed — momentum is sacred)
     for (const x of this.course.surfaces) {
-      if (x.n !== 1 || !this.contains(x, p.s, p.lat)) continue;
+      if (x.axis !== "h" || x.n !== 1 || !this.contains(x, p.s, p.lat)) continue;
       const crossed = prevH >= x.h && p.h <= x.h;
       const inSlabUpper = p.h < x.h && p.h >= x.h - x.thickness * 0.5;
       if (crossed || inSlabUpper) { this.stickTo(x); this.emit({ type: "land", n: 1, ...this.at() }); return; }
@@ -272,14 +302,22 @@ export class Sim {
 
   private stickTo(x: Surface): void {
     const p = this.p;
-    p.state = "stuck"; p.surfaceId = x.id; p.n = x.n; p.h = x.h; p.vh = 0;
+    p.state = "stuck"; p.surfaceId = x.id; p.n = x.n; p.axis = x.axis; p.vh = 0;
+    if (x.axis === "h") { p.h = x.h; p.lat = Math.min(Math.max(p.lat, x.l0), x.l1); }
+    else { p.lat = x.wl!; p.h = Math.min(Math.max(p.h, x.h0! + 0.05), x.h1! - 0.05); }
     p.adhesion = this.t.peel.adhesionMax; p.canSlap = false;
+  }
+
+  /** The target a release right now would pick (bots, ?tells). Pure. */
+  previewSlap(steer = this.p.steer) {
+    const p = this.p; const sl = this.t.slap;
+    return findSlapTarget(this.course, p, steer, p.speed * sl.snapFrames * DT, sl, this.belowSheet, p.axis);
   }
 
   private attemptSlap(): void {
     const p = this.p; const sl = this.t.slap;
     const travelS = p.speed * sl.snapFrames * DT;
-    const target = findSlapTarget(this.course, p, p.steer, travelS, sl, this.belowSheet);
+    const target = findSlapTarget(this.course, p, p.steer, travelS, sl, this.belowSheet, p.axis);
     if (!target) {
       this.stats.whiffs++;
       this.emit({ type: "whiff", ...this.at() });
@@ -287,12 +325,17 @@ export class Sim {
       return;
     }
     const x = target.surface;
-    const lMin = x.l0 + 0.05;
-    const lMax = x.railRight ? x.l1 - this.halfW : x.l1 - 0.05;
     const s1 = Math.min(Math.max(target.s + (target.via === "beneath" ? 0 : travelS), x.s0), x.s1 - 0.01);
+    let l1: number; let h1: number;
+    if (x.axis === "h") {
+      const lMax = x.railRight ? x.l1 - this.halfW : x.l1 - 0.05;
+      l1 = Math.min(Math.max(target.lat, x.l0 + 0.05), lMax); h1 = x.h;
+    } else {
+      l1 = x.wl!; h1 = Math.min(Math.max(target.h, x.h0! + 0.05), x.h1! - 0.05);
+    }
     p.travel = {
       s0: p.s, l0: p.lat, h0: p.h,
-      s1, l1: Math.min(Math.max(target.lat, lMin), lMax), h1: x.h,
+      s1, l1, h1,
       frame: 0, total: Math.max(1, Math.round(sl.snapFrames)), surfaceId: x.id, entrySpeed: p.speed
     };
     p.state = "slapTravel"; p.canSlap = false;
@@ -308,6 +351,7 @@ export class Sim {
     p.h = tr.h0 + (tr.h1 - tr.h0) * k;
     if (tr.frame < tr.total) return;
     const x = this.course.surface(tr.surfaceId)!;
+    if (x.motion) { p.h = x.axis === "h" ? x.h : p.h; } // a moving floor may have drifted during the 3f snap
     this.stickTo(x);
     const keep = this.t.slap.slapMomentumKeep;
     p.speed = Math.min(this.t.move.absCap, tr.entrySpeed * keep);
@@ -317,7 +361,7 @@ export class Sim {
     p.travel = null;
     this.stats.slaps++;
     if (tr.entrySpeed > 0) this.stats.minSlapKeep = Math.min(this.stats.minSlapKeep, p.speed / tr.entrySpeed);
-    this.emit({ type: "slap", entrySpeed: tr.entrySpeed, exitSpeed: p.speed, n: x.n, surface: x.kind, distance, ...this.at() });
+    this.emit({ type: "slap", entrySpeed: tr.entrySpeed, exitSpeed: p.speed, n: x.n, axis: x.axis, surface: x.kind, surfaceId: x.id, distance, ...this.at() });
   }
 
   private beginRespawn(): void {
@@ -325,10 +369,15 @@ export class Sim {
     this.stats.falls++;
     this.emit({ type: "fallout", ...this.at() });
     let s = Math.max(c.startS, p.fallStartS - f.respawnBack);
-    while (s > c.startS && (c.inGap(s) || c.inGap(s + 12) || c.hazardAt(s, 0, 3) || c.hazardAt(s + 6, 0, 3))) s -= 1;
-    const road = c.roadAt(s)!;
+    const clean = (q: number) => {
+      const x = c.spawnAt(q);
+      return !!x && !c.inGap(q + 12) && x.s1 - q > 12 && !c.hazardAt(q, (x.l0 + x.l1) / 2, 3, x.h) && !c.hazardAt(q + 6, (x.l0 + x.l1) / 2, 3, x.h);
+    };
+    while (s > c.startS && !clean(s)) s -= 1;
+    const road = c.spawnAt(s)!;
+    const lat = road.kind === "road" ? 0 : (road.l0 + road.l1) / 2;
     Object.assign(p, {
-      state: "respawning", s, lat: 0, h: road.h, n: 1, surfaceId: road.id, speed: 0, latVel: 0, vh: 0,
+      state: "respawning", s, lat, h: road.h, n: 1, axis: "h", surfaceId: road.id, speed: 0, latVel: 0, vh: 0,
       adhesion: this.t.peel.adhesionMax, timer: f.restickTime, offscreen: 0, canSlap: false, travel: null
     } satisfies Partial<Player>);
     this.emit({ type: "respawn", ...this.at() });
@@ -358,6 +407,19 @@ export class Sim {
     if (this.opts.god) return true;
     const x = this.course.surface(p.surfaceId);
     if (!x) return false;
-    return p.s >= x.s0 - 1e-6 && p.s < x.s1 + 1e-6 && p.lat >= x.l0 - 1e-6 && p.lat <= x.l1 + 1e-6 && Math.abs(p.h - x.h) < 1e-6;
+    const e = 1e-6;
+    if (p.s < x.s0 - e || p.s >= x.s1 + e) return false;
+    if (x.axis === "h") return p.lat >= x.l0 - e && p.lat <= x.l1 + e && Math.abs(p.h - x.h) < e;
+    return p.h >= x.h0! - e && p.h <= x.h1! + e && Math.abs(p.lat - x.wl!) < e;
+  }
+
+  /** Independent copy (shares the Course; call course.update(original.time) afterwards if you step it). */
+  clone(): Sim {
+    const c = new Sim(this.course, this.t, this.opts);
+    c.p = { ...this.p, travel: this.p.travel ? { ...this.p.travel } : null };
+    c.tick = this.tick; c.time = this.time; c.finished = this.finished; c.finishTime = this.finishTime;
+    c.stats = { ...this.stats };
+    this.course.update(this.time);
+    return c;
   }
 }
